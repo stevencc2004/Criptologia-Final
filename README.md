@@ -1,4 +1,4 @@
-# ⛓️ EduChain: Sistema Descentralizado y Seguro de Calificaciones
+# ⛓️ Sistema Descentralizado y Seguro de Calificaciones
 
 Este proyecto consiste en el diseño e implementación de un prototipo funcional de **Blockchain local** escrito en Python, orientado específicamente a asegurar, auditar y transparentar la emisión y el registro de calificaciones académicas. 
 
