@@ -1,11 +1,11 @@
 """
 Módulo: demo.py
-Asignatura: Criptología - Proyecto Final (EduChain)
+Asignatura: Criptología - Proyecto Final 
 Universidad Distrital Francisco José de Caldas
 Docente: Msc. Ing. Óscar Gabriel Espejo Mojica
 
 Script de demostración y validación en tiempo real que ejecuta los 4 escenarios obligatorios
-de EduChain para demostrar la seguridad, inmutabilidad y control de accesos criptográficos.
+de    para demostrar la seguridad, inmutabilidad y control de accesos criptográficos.
 """
 
 import sys
@@ -92,7 +92,7 @@ def print_block_details(block: Block):
 
 
 def main():
-    print_title("EDUCHAIN - SISTEMA DESCENTRALIZADO Y SEGURO DE CALIFICACIONES\n PROYECTO FINAL | ASIGNATURA: CRIPTOLOGIA\n UNIVERSIDAD DISTRITAL FRANCISCO JOSE DE CALDAS")
+    print_title("   - SISTEMA DESCENTRALIZADO Y SEGURO DE CALIFICACIONES\n PROYECTO FINAL | ASIGNATURA: CRIPTOLOGIA\n UNIVERSIDAD DISTRITAL FRANCISCO JOSE DE CALDAS")
 
     # =========================================================================
     # ESCENARIO 1: Creación de la cadena (Bloque Génesis)
@@ -109,7 +109,7 @@ def main():
     
     # Mostrar detalles del Bloque Génesis
     genesis = blockchain.chain[0]
-    print("\n[Detalles del Bloque Genesis de EduChain]:")
+    print("\n[Detalles del Bloque Genesis de   ]:")
     print_block_details(genesis)
     
     # Validar la cadena inicial
@@ -156,7 +156,7 @@ def main():
     
     # 4. Minar las notas pendientes
     print("\n[5] Minando nuevo bloque (Bloque 1) con las transacciones académicas...")
-    bloque1 = blockchain.mine_pending_transactions()
+    bloque1 = blockchain.mine_pending_transactions(contract)
     
     # Mostrar detalles del nuevo bloque
     print("\n[Detalles del Bloque 1 Minado]:")
@@ -278,11 +278,18 @@ def main():
     print(" - Escenario 3 (Modificacion Historica):  DETECTADO Y RECHAZADO [OK]")
     print(" - Escenario 4 (Accesos No Autorizados):  DETECTADOS Y RECHAZADOS [OK]")
     print("======================================================================")
-    print(" EduChain ha demostrado ser robusto criptograficamente a nivel de:")
+    print("    ha demostrado ser robusto criptograficamente a nivel de:")
     print(" 1. Confidencialidad, Integridad y Disponibilidad (CIA Triad)")
     print(" 2. No repudio y autenticidad (Firmas ECDSA SECP256K1)")
     print(" 3. Auditoria y Resistencia a Modificaciones (Arbol de Merkle y PoW)")
     print("======================================================================")
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except AssertionError as ae:
+        print(f"[FALLO EN DEMO] {ae}")
+        raise
+    except Exception as e:
+        print(f"[ERROR EN DEMO] {e}")
+        raise

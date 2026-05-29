@@ -1,6 +1,6 @@
 """
 Módulo: smart_contract.py
-Asignatura: Criptología - Proyecto Final (EduChain)
+Asignatura: Criptología - Proyecto Final 
 Universidad Distrital Francisco José de Caldas
 
 Este módulo actúa como el Smart Contract del sistema, definiendo la lógica
@@ -85,81 +85,84 @@ class SmartContract:
 
 # Bloque de prueba de funcionamiento autónomo
 if __name__ == '__main__':
-    print("==================================================")
-    print("PRUEBA UNITARIA: smart_contract.py")
-    print("==================================================")
-
-    # Importamos herramientas para la demo local
-    from crypto_utils import generate_key_pair, sign_data
-
-    # 1. Creamos un mock de la clase Transacción para probar
-    class MockTransaction:
-        def __init__(self, id_profesor, id_estudiante, asignatura, nota, private_key, pk_hex):
-            self.id_profesor = id_profesor
-            self.id_estudiante = id_estudiante
-            self.asignatura = asignatura
-            self.nota = nota
-            self.pk_hex = pk_hex
-            # Firmar
-            payload = self.get_canonical_payload()
-            self.firma = sign_data(private_key, payload)
-
-        def get_canonical_payload(self) -> str:
-            return f"{self.id_profesor}|{self.id_estudiante}|{self.asignatura}|{self.nota}"
-
-    # Instanciar el Smart Contract
-    contract = SmartContract()
-
-    # Generamos pares de claves para Profesor, Estudiante y Atacante
-    prof_key, prof_pub = generate_key_pair()
-    est_key, est_pub = generate_key_pair()
-    atk_key, atk_pub = generate_key_pair()
-
-    # Registrar el profesor legítimo en el Smart Contract
-    contract.register_professor("PROF_ESPEJO", prof_pub)
-
-    # Caso A: Transacción válida de Profesor
-    print("\n--- CASO A: Transaccion legitima de Docente registrado ---")
-    tx_valida = MockTransaction("PROF_ESPEJO", "EST_202610", "Criptologia", 4.5, prof_key, prof_pub)
     try:
+        print("==================================================")
+        print("PRUEBA UNITARIA: smart_contract.py")
+        print("==================================================")
+
+        # Importamos herramientas para la demo local
+        from crypto_utils import generate_key_pair, sign_data
+
+        # 1. Creamos un mock de la clase Transacción para probar
+        class MockTransaction:
+            def __init__(self, id_profesor, id_estudiante, asignatura, nota, private_key, pk_hex):
+                self.id_profesor = id_profesor
+                self.id_estudiante = id_estudiante
+                self.asignatura = asignatura
+                self.nota = nota
+                self.pk_hex = pk_hex
+                # Firmar
+                payload = self.get_canonical_payload()
+                self.firma = sign_data(private_key, payload)
+
+            def get_canonical_payload(self) -> str:
+                return f"{self.id_profesor}|{self.id_estudiante}|{self.asignatura}|{self.nota}"
+
+        # Instanciar el Smart Contract
+        contract = SmartContract()
+
+        # Generamos pares de claves para Profesor, Estudiante y Atacante
+        prof_key, prof_pub = generate_key_pair()
+        est_key, est_pub = generate_key_pair()
+        atk_key, atk_pub = generate_key_pair()
+
+        # Registrar el profesor legítimo en el Smart Contract
+        contract.register_professor("PROF_ESPEJO", prof_pub)
+
+        # Caso A: Transacción válida de Profesor
+        print("\n--- CASO A: Transaccion legitima de Docente registrado ---")
+        tx_valida = MockTransaction("PROF_ESPEJO", "EST_202610", "Criptologia", 4.5, prof_key, prof_pub)
         resultado = contract.validate_transaction(tx_valida)
         print(f"-> Resultado de validacion: {resultado}")
-        assert resultado is True, "La transacción del profesor autorizado debería ser válida"
+        if resultado is not True:
+            raise AssertionError("La transacción del profesor autorizado debería ser válida")
         print("[OK] Transaccion legitima aceptada con exito.")
+
+        # Caso B: Estudiante intenta registrar una nota usando su propio ID
+        print("\n--- CASO B: Estudiante intenta emitir nota usando su ID ---")
+        tx_estudiante = MockTransaction("EST_202610", "EST_202611", "Criptologia", 5.0, est_key, est_pub)
+        try:
+            contract.validate_transaction(tx_estudiante)
+            raise AssertionError("El Smart Contract no rechazó al estudiante")
+        except PermissionError as e:
+            print(f"Rechazado correctamente:\n   -> {e}")
+            print("[OK] Estudiante sin rol de profesor rechazado exitosamente.")
+
+        # Caso C: Atacante intenta suplantar al profesor usando el ID del profesor pero su propia clave pública y privada
+        print("\n--- CASO C: Atacante intenta suplantar al Profesor con clave propia ---")
+        tx_suplantacion = MockTransaction("PROF_ESPEJO", "EST_202610", "Criptologia", 5.0, atk_key, atk_pub)
+        try:
+            contract.validate_transaction(tx_suplantacion)
+            raise AssertionError("El Smart Contract no rechazó la suplantación por clave pública")
+        except PermissionError as e:
+            print(f"Rechazado correctamente:\n   -> {e}")
+            print("[OK] Intento de suplantacion de identidad de profesor detectado y rechazado.")
+
+        # Caso D: Atacante intenta suplantar usando la clave pública del profesor pero firmando con su propia clave privada
+        print("\n--- CASO D: Atacante intenta suplantar usando PK del Profesor pero firma invalida ---")
+        tx_firma_falsa = MockTransaction("PROF_ESPEJO", "EST_202610", "Criptologia", 5.0, atk_key, prof_pub)
+        try:
+            contract.validate_transaction(tx_firma_falsa)
+            raise AssertionError("El Smart Contract no rechazó la firma falsa")
+        except PermissionError as e:
+            print(f"Rechazado correctamente:\n   -> {e}")
+            print("[OK] Intento de falsificacion de firma digital detectado y rechazado.")
+
+        print("\n[OK] ¡Todas las verificaciones del Smart Contract superadas con exito!")
+        print("==================================================")
+    except AssertionError as ae:
+        print(f"[FALLO EN PRUEBAS] {ae}")
+        raise
     except Exception as e:
-        print(f"Error inesperado: {e}")
-
-    # Caso B: Estudiante intenta registrar una nota usando su propio ID
-    print("\n--- CASO B: Estudiante intenta emitir nota usando su ID ---")
-    tx_estudiante = MockTransaction("EST_202610", "EST_202611", "Criptologia", 5.0, est_key, est_pub)
-    try:
-        contract.validate_transaction(tx_estudiante)
-        print("ERROR: El Smart Contract no rechazo al estudiante.")
-    except PermissionError as e:
-        print(f"Rechazado correctamente:\n   -> {e}")
-        print("[OK] Estudiante sin rol de profesor rechazado exitosamente.")
-
-    # Caso C: Atacante intenta suplantar al profesor usando el ID del profesor pero su propia clave pública y privada
-    print("\n--- CASO C: Atacante intenta suplantar al Profesor con clave propia ---")
-    tx_suplantacion = MockTransaction("PROF_ESPEJO", "EST_202610", "Criptologia", 5.0, atk_key, atk_pub)
-    try:
-        contract.validate_transaction(tx_suplantacion)
-        print("ERROR: El Smart Contract no rechazo la suplantacion por clave publica.")
-    except PermissionError as e:
-        print(f"Rechazado correctamente:\n   -> {e}")
-        print("[OK] Intento de suplantacion de identidad de profesor detectado y rechazado.")
-
-    # Caso D: Atacante intenta suplantar usando la clave pública del profesor pero firmando con su propia clave privada
-    print("\n--- CASO D: Atacante intenta suplantar usando PK del Profesor pero firma invalida ---")
-    tx_firma_falsa = MockTransaction("PROF_ESPEJO", "EST_202610", "Criptologia", 5.0, atk_key, prof_pub)
-    # Reemplazamos la firma generada por el atacante para que use el objeto pero no tiene la clave privada, 
-    # en este caso tx_firma_falsa tiene la firma generada por atk_key pero la pk_hex es prof_pub.
-    try:
-        contract.validate_transaction(tx_firma_falsa)
-        print("ERROR: El Smart Contract no rechazo la firma falsa.")
-    except PermissionError as e:
-        print(f"Rechazado correctamente:\n   -> {e}")
-        print("[OK] Intento de falsificacion de firma digital detectado y rechazado.")
-
-    print("\n[OK] ¡Todas las verificaciones del Smart Contract superadas con exito!")
-    print("==================================================")
+        print(f"[ERROR] Ejecución de pruebas fallida: {e}")
+        raise

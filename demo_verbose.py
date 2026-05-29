@@ -265,7 +265,7 @@ def main():
     print("    que comience con '000'. Esto demuestra gasto computacional real.\n")
     print("    Formato de la cadena hasheada:")
     print("      'index|timestamp|merkle_root|hash_anterior|nonce'\n")
-    bloque1 = blockchain.mine_pending_transactions()
+    bloque1 = blockchain.mine_pending_transactions(contract)
     esperar(0.2)
 
     print_step(8, "Inspeccionar el Bloque 1 minado y su enlace con el Génesis")
@@ -477,4 +477,11 @@ def main():
     separador(1)
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except AssertionError as ae:
+        print(f"[FALLO EN DEMO_VERBOSE] {ae}")
+        raise
+    except Exception as e:
+        print(f"[ERROR EN DEMO_VERBOSE] {e}")
+        raise
