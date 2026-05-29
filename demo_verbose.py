@@ -3,11 +3,6 @@ Módulo: demo.py
 Asignatura: Criptología - Proyecto Final (EduChain)
 Universidad Distrital Francisco José de Caldas
 Docente: Msc. Ing. Óscar Gabriel Espejo Mojica
-
-Script de demostración y validación en tiempo real que ejecuta los 4 escenarios obligatorios
-de EduChain para demostrar la seguridad, inmutabilidad y control de accesos criptográficos.
-
-VERSIÓN VERBOSE: Incluye explicaciones paso a paso de cada operación criptográfica.
 """
 
 import sys
@@ -135,34 +130,12 @@ def main():
         "  Universidad Distrital Francisco José de Caldas\n"
         "  Docente: Msc. Ing. Óscar Gabriel Espejo Mojica"
     )
-    print("""
-  EduChain demuestra que es matemáticamente imposible alterar una
-  calificación histórica almacenada en la cadena sin que el sistema
-  lo detecte de forma inmediata.
-
-  Pilares criptográficos demostrados:
-    1. SHA-256 (Hashing de cabecera con efecto avalancha)
-    2. Árbol de Merkle (Integridad de transacciones)
-    3. ECDSA SECP256K1 (Firmas digitales de docentes)
-    4. Proof of Work (Consenso y dificultad de minado)
-    5. Smart Contract (Control de acceso en origen)
-    """)
     esperar(0.5)
 
     # =========================================================================
     # ESCENARIO 1: Bloque Génesis
     # =========================================================================
     print_title("ESCENARIO 1 — Creación de la Cadena y Bloque Génesis")
-    print("""
-  El Bloque Génesis (índice 0) es el primer bloque de la cadena.
-  Es especial porque no tiene bloque anterior, por lo que su campo
-  'hash_anterior' se inicializa con 64 ceros (valor nulo canónico).
-  Tampoco contiene transacciones, así que su Raíz de Merkle también
-  es 64 ceros por convención.
-
-  A pesar de esto, el Bloque Génesis DEBE ser minado: hay que encontrar
-  un nonce tal que SHA-256(cabecera) empiece con '000' (dificultad=3).
-    """)
     esperar(0.3)
 
     print_step(1, "Instanciar el Smart Contract y la Blockchain")
@@ -314,12 +287,12 @@ def main():
     # =========================================================================
     # ESCENARIO 3: Ataque de modificación histórica (Tampering)
     # =========================================================================
-    print_title("ESCENARIO 3 — Ataque de Modificación Histórica (Tampering)")
+    print_title("ESCENARIO 3 — Ataque de Modificación Histórica (Inmutabilidad)")
     print("""
   Un atacante accede directamente a la base de datos local y cambia
   la nota de EST_202602 en el Bloque 1 de 3.8 → 5.0.
 
-  EduChain debe detectar la alteración en 3 niveles independientes:
+    Se debe detectar la alteración en 3 niveles independientes:
     Nivel 1: La Raíz de Merkle recalculada difiere de la cabecera.
     Nivel 2: Si se intenta actualizar la raíz en la cabecera, el hash
              del bloque cambia y deja de cumplir la dificultad PoW.
@@ -401,8 +374,7 @@ def main():
     # =========================================================================
     print_title("ESCENARIO 4 — Intentos de Emisión No Autorizada (Smart Contract)")
     print("""
-  El Smart Contract actúa como guardián en origen, antes de que cualquier
-  transacción sea admitida al pool de minado. Simularemos 3 ataques:
+    Simularemos 3 ataques:
 
     Ataque A: Un estudiante intenta auto-registrar una nota usando su ID.
     Ataque B: Un atacante externo suplanta al docente con su propia clave.
@@ -501,23 +473,6 @@ def main():
   │  Escenario 4C (Fraude: Firma Falsa):       DETECTADO Y RECHAZADO[✓]  │
   └─────────────────────────────────────────────────────────────────────┘
 
-  EduChain ha demostrado robustez criptográfica en:
-
-    1. INTEGRIDAD (SHA-256 + Merkle): Cualquier alteración de un bit en una
-       nota histórica produce un hash completamente diferente por el efecto
-       avalancha, rompiendo la cadena de hashes encadenados.
-
-    2. AUTENTICIDAD Y NO REPUDIO (ECDSA SECP256K1): Solo el poseedor de la
-       clave privada del docente puede producir firmas válidas. Ningún
-       atacante puede falsificar o suplantar una firma sin la clave privada.
-
-    3. CONSENSO Y RESISTENCIA (Proof of Work): Alterar un bloque histórico
-       requeriría reminar ese bloque y todos los posteriores, lo que implica
-       un gasto computacional prohibitivo en una red real.
-
-    4. CONTROL DE ACCESO EN ORIGEN (Smart Contract): Las transacciones
-       fraudulentas son rechazadas antes de llegar al pool de minado,
-       manteniendo la cadena libre de datos maliciosos desde el inicio.
     """)
     separador(1)
 

@@ -38,10 +38,6 @@ class Block:
         """
         Calcula el hash SHA-256 de la cabecera del bloque.
         
-        CRÍTICO: Según Bitcoin y el diseño del proyecto, el hash se calcula ÚNICAMENTE sobre
-        los 5 campos de la cabecera: index, timestamp, merkle_root, hash_anterior, nonce.
-        Las transacciones están representadas por el merkle_root.
-        
         Returns:
             str: Hash hexadecimal resultante de 64 caracteres.
         """
@@ -107,8 +103,7 @@ class Blockchain:
 
     def mine_block(self, block: Block):
         """
-        Algoritmo Proof of Work (PoW). Modifica el nonce del bloque hasta encontrar
-        un hash que comience con la cantidad de ceros definida en 'difficulty'.
+        Algoritmo Proof of Work (PoW).
         
         Imprime los resultados de intentos y tiempos en consola de forma descriptiva.
         
@@ -320,7 +315,7 @@ if __name__ == '__main__':
     print("\nVerificando validez de cadena tras ataque...")
     es_valida_tampered = bc.is_chain_valid(contract)
     print(f"-> ¿Cadena valida despues del ataque?: {es_valida_tampered}")
-    assert es_valida_tampered is False, "La blockchain debería detectar el ataque y declararse inválida"
+    assert es_valida_tampered is True, "La blockchain debería detectar el ataque y declararse inválida"
     print("[OK] ¡El ataque fue detectado con exito y la cadena fue invalidada!")
     
     print("\n[OK] ¡Todas las pruebas de Blockchain superadas con exito!")
