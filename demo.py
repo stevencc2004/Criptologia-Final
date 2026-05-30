@@ -1,61 +1,39 @@
 """
 Módulo: demo.py
-Asignatura: Criptología - Proyecto Final 
+Asignatura: Criptología - Proyecto Final (EduChain)
 Universidad Distrital Francisco José de Caldas
 Docente: Msc. Ing. Óscar Gabriel Espejo Mojica
-
-Script de demostración y validación en tiempo real que ejecuta los 4 escenarios obligatorios
-de    para demostrar la seguridad, inmutabilidad y control de accesos criptográficos.
 """
 
 import sys
 import time
-from crypto_utils import generate_key_pair, sha256_hash
-from merkle_tree import compute_merkle_root
+from crypto_utils import generate_key_pair, sha256_hash, sign_data, verify_signature
+from merkle_tree import compute_merkle_root, get_payload_from_tx
 from smart_contract import SmartContract
 from blockchain import Blockchain, Block
 
-# Definimos la clase Transaction que será el tipo de datos principal para las calificaciones
+
+# ============================================================
+# Clase principal de transacción académica
+# ============================================================
 class Transaction:
     def __init__(self, id_profesor: str, id_estudiante: str, asignatura: str, nota: float, private_key, pk_hex: str):
         """
         Representa una transacción académica (emisión de una calificación).
         La transacción se firma digitalmente usando la clave privada del docente al ser creada.
-        
-        Args:
-            id_profesor (str): Identificador único del profesor emisor.
-            id_estudiante (str): Identificador del estudiante calificado.
-            asignatura (str): Nombre de la asignatura.
-            nota (float): Calificación (número decimal).
-            private_key: Objeto de la clave privada ECDSA del profesor para firmar.
-            pk_hex (str): Clave pública ECDSA del profesor en formato X9.62 hex.
         """
         self.id_profesor = id_profesor
         self.id_estudiante = id_estudiante
         self.asignatura = asignatura
         self.nota = nota
         self.pk_hex = pk_hex
-        
-        # Calcular el payload canónico y firmarlo inmediatamente
         payload = self.get_canonical_payload()
-        from crypto_utils import sign_data
         self.firma = sign_data(private_key, payload)
 
     def get_canonical_payload(self) -> str:
-        """
-        Retorna el payload canónico que representa los datos estrictos de la nota.
-        Este payload es lo que firma el profesor y sobre lo que se construye el árbol de Merkle.
-        Esto previene el Error #1 de la guía (hashing redundante de firmas).
-        
-        Returns:
-            str: Payload académico canónico.
-        """
         return f"{self.id_profesor}|{self.id_estudiante}|{self.asignatura}|{self.nota:.1f}"
 
     def to_dict(self):
-        """
-        Retorna la representación de la transacción como diccionario.
-        """
         return {
             "id_profesor": self.id_profesor,
             "id_estudiante": self.id_estudiante,
@@ -66,138 +44,274 @@ class Transaction:
         }
 
 
+# ============================================================
+# Helpers de presentación en consola
+# ============================================================
+def separador(nivel=1):
+    """Imprime un separador visual según el nivel de jerarquía."""
+    if nivel == 1:
+        print("\n" + "=" * 70)
+    elif nivel == 2:
+        print("  " + "-" * 66)
+    else:
+        print("  " + "·" * 66)
+
 def print_title(title: str):
-    """Auxiliar para imprimir títulos elegantes en la consola."""
-    border = "=" * 70
-    print(f"\n{border}")
-    print(f" {title}")
-    print(border)
+    """Imprime un título de escenario principal."""
+    separador(1)
+    for linea in title.strip().split("\n"):
+        print(f"  {linea}")
+    separador(1)
+
+def print_step(numero: int, descripcion: str):
+    """Imprime un paso numerado dentro de un escenario."""
+    print(f"\n  [PASO {numero}] {descripcion}")
+    print("  " + "·" * 50)
+
+def print_concepto(etiqueta: str, valor: str, indent: int = 4):
+    """Imprime un par clave-valor con indentación."""
+    espacio = " " * indent
+    print(f"{espacio}► {etiqueta}:")
+    print(f"{espacio}  {valor}")
+
+def print_ok(mensaje: str):
+    print(f"  [✓ OK] {mensaje}")
+
+def print_warn(mensaje: str):
+    print(f"  [⚠ ATAQUE] {mensaje}")
+
+def print_error(mensaje: str):
+    print(f"  [✗ RECHAZADO] {mensaje}")
+
+def esperar(segundos: float = 0.3):
+    """Pausa breve para dar tiempo de lectura entre pasos."""
+    time.sleep(segundos)
+
+def mostrar_cabecera_bloque(block: Block, titulo: str = "Cabecera del Bloque"):
+    """Muestra los campos de la cabecera de un bloque de forma detallada."""
+    print(f"\n  ┌─ {titulo} ─────────────────────────────────────────")
+    print(f"  │  Índice:          {block.index}")
+    print(f"  │  Timestamp:       {block.timestamp:.6f}  (Unix epoch)")
+    print(f"  │  Hash Anterior:   {block.hash_anterior[:32]}...")
+    print(f"  │                   ...{block.hash_anterior[-32:]}")
+    print(f"  │  Raíz de Merkle:  {block.merkle_root[:32]}...")
+    print(f"  │                   ...{block.merkle_root[-32:]}")
+    print(f"  │  Nonce (PoW):     {block.nonce}")
+    print(f"  │  Hash del Bloque: {block.hash[:32]}...")
+    print(f"  │                   ...{block.hash[-32:]}")
+    print(f"  │  Nº Transac.:     {len(block.transacciones)}")
+    print(f"  └──────────────────────────────────────────────────────")
+
+def mostrar_transaccion(tx: Transaction, numero: int):
+    """Muestra los campos de una transacción en detalle."""
+    payload = tx.get_canonical_payload()
+    hash_hoja = sha256_hash(payload)
+    print(f"\n  ┌─ Transacción #{numero} ────────────────────────────────────")
+    print(f"  │  Emisor (Profesor):  {tx.id_profesor}")
+    print(f"  │  Receptor (Alum.):  {tx.id_estudiante}")
+    print(f"  │  Asignatura:        {tx.asignatura}")
+    print(f"  │  Nota:              {tx.nota}")
+    print(f"  │  Payload Canónico:  {payload}")
+    print(f"  │  Hash (hoja Merk.): {hash_hoja}")
+    print(f"  │  Firma ECDSA (hex): {tx.firma[:32]}...")
+    print(f"  │                     ...{tx.firma[-32:]}")
+    print(f"  │  PK Emisor (X9.62): {tx.pk_hex[:32]}...")
+    print(f"  │                     ...{tx.pk_hex[-32:]}")
+    print(f"  └──────────────────────────────────────────────────────")
 
 
-def print_block_details(block: Block):
-    """Auxiliar para imprimir detalles completos de un bloque en formato legible."""
-    print(f"   [+] Indice del Bloque:  {block.index}")
-    print(f"   [+] Timestamp (Epoch):  {block.timestamp}")
-    print(f"   [+] Hash Anterior:      {block.hash_anterior}")
-    print(f"   [+] Raiz de Merkle:     {block.merkle_root}")
-    print(f"   [+] Nonce (PoW):        {block.nonce}")
-    print(f"   [+] Hash del Bloque:    {block.hash}")
-    print(f"   [+] Cantidad de Notas:  {len(block.transacciones)}")
-    if block.transacciones:
-        print("   [+] Transacciones (Calificaciones):")
-        for idx, tx in enumerate(block.transacciones):
-            print(f"       - Nota #{idx + 1}: [{tx.id_profesor}] -> [{tx.id_estudiante}] | {tx.asignatura} | Nota: {tx.nota}")
-            print(f"         PK Emisor (X9.62): {tx.pk_hex[:30]}...{tx.pk_hex[-30:]}")
-            print(f"         Firma Digital:     {tx.firma[:30]}...{tx.firma[-30:]}")
-
-
+# ============================================================
+# MAIN: Demostración por escenarios
+# ============================================================
 def main():
-    print_title("   - SISTEMA DESCENTRALIZADO Y SEGURO DE CALIFICACIONES\n PROYECTO FINAL | ASIGNATURA: CRIPTOLOGIA\n UNIVERSIDAD DISTRITAL FRANCISCO JOSE DE CALDAS")
+    print_title(
+        "EDUCHAIN — SISTEMA DESCENTRALIZADO Y SEGURO DE CALIFICACIONES\n"
+        "  Proyecto Final | Asignatura: Criptología\n"
+        "  Universidad Distrital Francisco José de Caldas\n"
+        "  Docente: Msc. Ing. Óscar Gabriel Espejo Mojica"
+    )
+    esperar(0.5)
 
     # =========================================================================
-    # ESCENARIO 1: Creación de la cadena (Bloque Génesis)
+    # ESCENARIO 1: Bloque Génesis
     # =========================================================================
-    print_title("ESCENARIO 1: Creacion de la Cadena y Bloque Genesis")
-    print("[Explicacion] Se inicializa la Blockchain con una dificultad de 3 ceros (target = '000').")
-    print("El Bloque Genesis se crea sin transacciones, por ende su Raiz de Merkle es vacia (64 ceros).")
-    print("Este bloque debe ser minado resolviendo el Proof of Work antes de enlazarse.")
-    print("----------------------------------------------------------------------")
-    
-    # Instanciar el Smart Contract y la Blockchain
+    print_title("ESCENARIO 1 — Creación de la Cadena y Bloque Génesis")
+    esperar(0.3)
+
+    print_step(1, "Instanciar el Smart Contract y la Blockchain")
+    print("    La Blockchain se configura con dificultad = 3 (target = '000...').")
+    print("    Al instanciar Blockchain, se dispara automáticamente la creación del Génesis.\n")
+    esperar(0.2)
+
     contract = SmartContract()
     blockchain = Blockchain(difficulty=3)
-    
-    # Mostrar detalles del Bloque Génesis
     genesis = blockchain.chain[0]
-    print("\n[Detalles del Bloque Genesis de   ]:")
-    print_block_details(genesis)
-    
-    # Validar la cadena inicial
-    print("\n[Validacion] Verificando la integridad del blockchain de forma criptografica...")
+    esperar(0.2)
+
+    print_step(2, "Inspeccionar la cabecera del Bloque Génesis")
+    print("    Verificación de los campos:\n")
+    print(f"    • index = 0")
+    print(f"    • hash_anterior = {'0'*20}... → no hay bloque previo, se usa el valor nulo")
+    print(f"    • merkle_root   = {'0'*20}... → sin transacciones, raíz nula por convención")
+    print(f"    • nonce         = {genesis.nonce}         → valor encontrado para cumplir el PoW")
+    print(f"    • hash          = {genesis.hash[:40]}...")
+    print(f"      ¿Empieza con '000'? → {'SÍ ✓' if genesis.hash.startswith('000') else 'NO ✗'}")
+    mostrar_cabecera_bloque(genesis, "Cabecera del Bloque Génesis")
+    esperar(0.3)
+
+    print_step(3, "Verificar la integridad criptográfica de la cadena inicial")
+    #is_chain_valid() comprueba: hashes, enlaces, Merkle y firmas.
     es_valida = blockchain.is_chain_valid(contract)
-    print(f"-> Resultado de validacion: {'CADENA VALIDA [OK]' if es_valida else 'CADENA INVALIDA [ERROR]'}")
-    assert es_valida is True, "La cadena inicial debe ser válida"
+    print(f"\n    Resultado: {'CADENA VÁLIDA [✓]' if es_valida else 'CADENA INVÁLIDA [✗]'}")
+    assert es_valida is True
+    print_ok("Escenario 1 completado — Bloque Génesis minado y cadena válida.")
+    esperar(0.5)
 
 
     # =========================================================================
-    # ESCENARIO 2: Profesor emite notas válidas y se mina el bloque
+    # ESCENARIO 2: Profesor emite notas y se mina el Bloque 1
     # =========================================================================
-    print_title("ESCENARIO 2: Profesor Autorizado Emite Notas y Mina Bloque 1")
-    print("[Explicacion] Se genera un par de claves ECDSA (SECP256K1) para el Profesor Espejo.")
-    print("Su clave publica en formato X9.62 (130 caracteres) se registra formalmente en el Smart Contract.")
-    print("El docente emite tres calificaciones validas para diferentes estudiantes, las firma con su clave privada,")
-    print("las transacciones pasan la validacion del Smart Contract y se agregan a la pool de pendientes.")
-    print("Finalmente, se agrupan en un bloque, se calcula el Arbol de Merkle y se mina el bloque.")
-    print("----------------------------------------------------------------------")
+    print_title("ESCENARIO 2 — Docente Autorizado Emite Notas y Mina el Bloque 1")
+   
+    #El flujo completo es:
+    #a) Generar par de claves ECDSA (SECP256K1) para el docente.
+    #b) Registrar la clave pública en el Smart Contract.
+    #c) Construir cada transacción con su payload canónico y firma digital.
+    #d) El Smart Contract valida cada transacción antes de admitirla al pool.
+    #e) Calcular la Raíz del Árbol de Merkle de las 3 transacciones.
+    # f) Ejecutar Proof of Work para encontrar el nonce del Bloque 1.
+    #g) Enlazar el Bloque 1 al Génesis mediante el campo 'hash_anterior'.
     
-    # 1. Generar llaves ECDSA de Profesor y registrarlas
-    print("[1] Generando claves criptograficas para el Docente...")
+    esperar(0.3)
+
+    print_step(1, "Generar el par de claves ECDSA para el Docente")
+    print("    Curva: SECP256K1.")
+    print("    La clave pública se serializa en formato X9.62 no comprimido:")
+    print("    prefijo '04' + coordenada X (32 bytes) + coordenada Y (32 bytes) = 65 bytes = 130 hex.\n")
     prof_key, prof_pub = generate_key_pair()
-    print(f"   -> Clave Publica Docente (PK_hex, len={len(prof_pub)}):\n      {prof_pub}")
-    print("\n[2] Registrando clave publica del docente en el Smart Contract...")
+    print(f"    Clave Pública (130 hex chars, prefijo '04'):")
+    print(f"      {prof_pub[:65]}")
+    print(f"      {prof_pub[65:]}")
+    print(f"    ¿Empieza con '04'? → {'SÍ ✓' if prof_pub.startswith('04') else 'NO ✗'}")
+    print(f"    ¿Longitud 130?     → {'SÍ ✓' if len(prof_pub) == 130 else 'NO ✗'}")
+    esperar(0.3)
+
+    print_step(2, "Registrar la clave pública en el Smart Contract")
     contract.register_professor("PROF_ESPEJO", prof_pub)
-    
-    # 2. Docente emite 3 notas
-    print("\n[3] Docente emite y firma digitalmente 3 calificaciones...")
+    print(f"\n    Registro actual del Smart Contract: {{'PROF_ESPEJO': '{prof_pub}'}}")
+    esperar(0.3)
+
+    print_step(3, "El Docente emite y firma 3 calificaciones")
+    print("    Formato: 'ID_Profesor|ID_Estudiante|Asignatura|Nota'")
+    #Luego se firma con ECDSA(SHA-256) usando la clave privada del docente.
     tx1 = Transaction("PROF_ESPEJO", "EST_202601", "Criptologia", 4.5, prof_key, prof_pub)
     tx2 = Transaction("PROF_ESPEJO", "EST_202602", "Criptologia", 3.8, prof_key, prof_pub)
-    tx3 = Transaction("PROF_ESPEJO", "EST_202603", "Criptologia", 5.0, prof_key, prof_pub)
-    
-    print(f"   -> Nota 1 cannica: '{tx1.get_canonical_payload()}'")
-    print(f"      Firma ECDSA (hex): {tx1.firma[:40]}...{tx1.firma[-40:]}")
-    
-    # 3. Validar y agregar transacciones a pendientes
-    print("\n[4] Enviando transacciones a la blockchain para validacion del Smart Contract...")
+    tx3 = Transaction("PROF_ESPEJO", "EST_202603", "Criptologia", 4.9, prof_key, prof_pub)
+    mostrar_transaccion(tx1, 1)
+    mostrar_transaccion(tx2, 2)
+    mostrar_transaccion(tx3, 3)
+    esperar(0.3)
+
+    print_step(4, "Verificación individual de cada firma (pre-validación interna)")
+    #que verify_signature() comprueba correctamente cada firma:)
+    for idx, tx in enumerate([tx1, tx2, tx3], 1):
+        payload = tx.get_canonical_payload()
+        es_firma_valida = verify_signature(tx.pk_hex, payload, tx.firma)
+        print(f"    Transacción #{idx} → payload='{payload}'")
+        print(f"      verify_signature() → {es_firma_valida} {'✓' if es_firma_valida else '✗'}")
+    esperar(0.3)
+
+    print_step(5, "Enviar transacciones al pool del Smart Contract")
+    #add_transaction() invoca validate_transaction() del Smart Contract.
+    #Se comprueban 3 reglas en cadena:
+    #Regla 1: ¿Está registrado el ID del profesor?
+    #Regla 2: ¿Coincide la PK_hex con la registrada para ese ID?
+    #Regla 3: ¿Es válida la firma ECDSA sobre el payload canónico?
     blockchain.add_transaction(tx1, contract)
     blockchain.add_transaction(tx2, contract)
     blockchain.add_transaction(tx3, contract)
-    print("   -> Todas las transacciones pasaron la validacion criptografica del Smart Contract.")
-    print(f"   -> Pool de transacciones pendientes: {len(blockchain.pending_transactions)} registradas.")
-    
-    # 4. Minar las notas pendientes
-    print("\n[5] Minando nuevo bloque (Bloque 1) con las transacciones académicas...")
+    print(f"\n    Pool de transacciones pendientes: {len(blockchain.pending_transactions)} transaccion(es).")
+    esperar(0.3)
+
+    print_step(6, "Calcular la Raíz del Árbol de Merkle (antes del minado)")
+    #El árbol de Merkle resume las 3 transacciones en un único hash de 256 bits.
+    h1 = sha256_hash(tx1.get_canonical_payload())
+    h2 = sha256_hash(tx2.get_canonical_payload())
+    h3 = sha256_hash(tx3.get_canonical_payload())
+    h12 = sha256_hash(h1 + h2)
+    h33 = sha256_hash(h3 + h3)
+    raiz_merkle = sha256_hash(h12 + h33)
+    print(f"    Hoja 1 (TX1): {h1[:40]}...")
+    print(f"    Hoja 2 (TX2): {h2[:40]}...")
+    print(f"    Hoja 3 (TX3): {h3[:40]}...")
+    print(f"    Nivel 1:")
+    print(f"      Nodo H(H1+H2): {h12[:40]}...")
+    print(f"      Nodo H(H3+H3): {h33[:40]}...  ← H3 duplicado (impar)")
+    print(f"    Raíz Merkle:   {raiz_merkle[:40]}...")
+    merkle_calculado = compute_merkle_root(blockchain.pending_transactions)
+    print(f"\n    Verificación: compute_merkle_root() = {merkle_calculado[:40]}...")
+    print(f"    ¿Coincide con cálculo manual? → {'SÍ ✓' if raiz_merkle == merkle_calculado else 'NO ✗'}")
+    esperar(0.3)
+
+    print_step(7, "Minar el Bloque 1 (Proof of Work)")
+    #El PoW itera el nonce desde 0 hasta encontrar un hash de cabecera
+    #que comience con '000'. Esto demuestra gasto computacional real.
+    print("    Formato de la cadena hasheada:")
+    print("      'index|timestamp|merkle_root|hash_anterior|nonce'\n")
     bloque1 = blockchain.mine_pending_transactions(contract)
-    
-    # Mostrar detalles del nuevo bloque
-    print("\n[Detalles del Bloque 1 Minado]:")
-    print_block_details(bloque1)
-    
-    # Validar el blockchain completo tras el minado
-    print("\n[Validacion] Verificando integridad de la Blockchain completa...")
+    esperar(0.2)
+
+    print_step(8, "Inspeccionar el Bloque 1 minado y su enlace con el Génesis")
+    print(f"    Hash del Génesis:         {genesis.hash}")
+    print(f"    hash_anterior del Bloque1: {bloque1.hash_anterior}")
+    print(f"    ¿Son iguales? → {'SÍ ✓' if genesis.hash == bloque1.hash_anterior else 'NO ✗'}")
+    mostrar_cabecera_bloque(bloque1, "Cabecera del Bloque 1")
+    esperar(0.3)
+
+    print_step(9, "Verificar integridad completa de la cadena (Génesis + Bloque 1)")
     es_valida = blockchain.is_chain_valid(contract)
-    print(f"-> Resultado de validacion: {'CADENA VALIDA [OK]' if es_valida else 'CADENA INVALIDA [ERROR]'}")
-    assert es_valida is True, "La cadena debe seguir siendo válida"
+    print(f"\n    Resultado: {'CADENA VÁLIDA [✓]' if es_valida else 'CADENA INVÁLIDA [✗]'}")
+    assert es_valida is True
+    print_ok("Escenario 2 completado — 3 notas emitidas, firmadas, validadas y minadas.")
+    esperar(0.5)
 
 
     # =========================================================================
     # ESCENARIO 3: Ataque de modificación histórica (Tampering)
     # =========================================================================
-    print_title("ESCENARIO 3: Ataque de Modificacion Historica (Inmutabilidad)")
-    print("[Explicacion] Un atacante interno o externo intenta alterar de manera fraudulenta una nota historica.")
-    print("Accede directamente a la base de datos local y cambia la nota del EST_202602 en el Bloque 1 de 3.8 a 5.0.")
-    print("Demostraremos como el Arbol de Merkle y el hash de la cabecera invalidan el bloque de inmediato.")
-    print("IMPORTANTE: Segun la rubrica de calificacion, no recalculamos el PoW para demostrar que queda invalido.")
-    print("----------------------------------------------------------------------")
+    print_title("ESCENARIO 3 — Ataque de Modificación Histórica (Inmutabilidad)")
     
-    # 1. Alteración de la nota
+   #Un atacante accede directamente a la base de datos local y cambia
+   #la nota de EST_202602 en el Bloque 1 de 3.8 → 5.0.
+
+   #Se debe detectar la alteración en 3 niveles independientes:
+   #Nivel 1: La Raíz de Merkle recalculada difiere de la cabecera.
+   #Nivel 2: Si se intenta actualizar la raíz en la cabecera, el hash
+   #         del bloque cambia y deja de cumplir la dificultad PoW.
+   #Nivel 3: La firma ECDSA de la transacción alterada ya no es válida.
+    
+    esperar(0.3)
+
     nota_original = bloque1.transacciones[1].nota
-    print(f"[1] Accediendo a los datos del Bloque 1. Nota original del estudiante 'EST_202602': {nota_original}")
-    print("[!] Modificando nota de forma fraudulenta a 5.0...")
+
+    print_step(1, "Modificar la nota directamente en memoria")
+    print(f"    Nota original de EST_202602 en el Bloque 1: {nota_original}")
+    print_warn("Alterando nota de 3.8 a 5.0 directamente en los datos del bloque...")
     bloque1.transacciones[1].nota = 5.0
-    print(f"   -> Nota alterada en base de datos: {bloque1.transacciones[1].nota}")
-    
-    # 2. Mostrar la discrepancia matemática
-    print("\n[2] Analisis Matematico de la Integridad del Arbol de Merkle:")
+    print(f"    Nota en memoria ahora:  {bloque1.transacciones[1].nota}  ← ALTERADA")
+    esperar(0.3)
+
+    print_step(2, "NIVEL 1 — Detección por el Árbol de Merkle")
+    print("    Recalculamos la raíz de Merkle con el dato alterado")
     raiz_guardada = bloque1.merkle_root
     raiz_recalculada = compute_merkle_root(bloque1.transacciones)
-    print(f"   -> Raiz de Merkle Guardada en Cabecera:   {raiz_guardada}")
-    print(f"   -> Raiz de Merkle Recalculada de Hojas:   {raiz_recalculada}")
-    print(f"   -> ¿Coinciden las Raices de Merkle?:      {raiz_guardada == raiz_recalculada}")
-    
-    print("\n[3] Analisis del Hashing de Cabecera (Efecto Avalancha):")
+    print(f"    Raíz Merkle en cabecera:    {raiz_guardada}")
+    print(f"    Raíz Merkle recalculada:    {raiz_recalculada}")
+    print(f"    ¿Coinciden?                 {'SÍ' if raiz_guardada == raiz_recalculada else 'NO ← INCONSISTENCIA DETECTADA ✓'}")
+    esperar(0.3)
+
+    print_step(3, "NIVEL 2 — Efecto Avalancha y rotura del Proof of Work")
     hash_guardado = bloque1.hash
-    # Si recalculamos el hash del bloque usando la nueva raíz de Merkle (la cual representaría el bloque si intentaran actualizar la cabecera)
-    # primero creamos un bloque temporal con la raíz recalculada
     bloque_temp = Block(
         index=bloque1.index,
         timestamp=bloque1.timestamp,
@@ -206,90 +320,148 @@ def main():
         hash_anterior=bloque1.hash_anterior,
         nonce=bloque1.nonce
     )
-    hash_recalculado_con_cambio = bloque_temp.calculate_hash()
-    print(f"   -> Hash original guardado (PoW '000'):     {hash_guardado}")
-    print(f"   -> Nuevo Hash recalculado si cambiamos Root: {hash_recalculado_con_cambio}")
-    print(f"   -> ¿El nuevo Hash cumple la dificultad PoW?: {hash_recalculado_con_cambio.startswith('000')}")
-    
-    # 3. Validación formal
-    print("\n[4] Ejecutando validacion formal del Blockchain ('is_chain_valid')...")
+    hash_con_merkle_nuevo = bloque_temp.calculate_hash()
+    print(f"    Hash original (válido,'000'): {hash_guardado}")
+    print(f"    Hash recalculado con nueva raíz Merkle:   {hash_con_merkle_nuevo}")
+    cumple_pow = hash_con_merkle_nuevo.startswith('000')
+    print(f"    ¿El nuevo hash cumple con el PoW ('000')? {'SÍ' if cumple_pow else 'NO ← [¡SISTEMA INVALIDADO!] El Proof of Work se ha ROTO'}")
+    esperar(0.3)
+
+    print_step(4, "NIVEL 3 — Firma digital ECDSA inválida")
+    #Aunque el atacante lograse reminar el bloque, la firma ECDSA de la
+    #transacción aún apunta al payload original (nota=3.8).
+    tx_alterada = bloque1.transacciones[1]
+    payload_nuevo = tx_alterada.get_canonical_payload()   # con nota=5.0
+    firma_original = tx_alterada.firma
+    es_valida_firma = verify_signature(tx_alterada.pk_hex, payload_nuevo, firma_original)
+    print(f"    Payload con nota alterada: '{payload_nuevo}'")
+    print(f"    Firma almacenada (original): {firma_original[:40]}...")
+    print(f"    Resultado: {es_valida_firma} {'← FIRMA INVÁLIDA ✓' if not es_valida_firma else ''}")
+    esperar(0.3)
+
+    print_step(5, "Validación formal con is_chain_valid()")
     es_valida_ataque = blockchain.is_chain_valid(contract)
-    print(f"-> Resultado de validacion formal: {'CADENA VALIDA [OK]' if es_valida_ataque else 'CADENA DETECTO ALTERACION [RECHAZADA]'}")
-    assert es_valida_ataque is False, "La cadena debe ser declarada inválida tras la manipulación"
-    
-    # Restauramos la nota para continuar con la demo limpia
-    print("\n[Restaurando] Devolviendo nota a su valor original para los siguientes escenarios...")
+    print(f"\n    Resultado: {'CADENA VÁLIDA' if es_valida_ataque else 'CADENA INVÁLIDA — ALTERACIÓN DETECTADA [✓]'}")
+    assert es_valida_ataque is False
+
+    print_step(6, "Restaurar el estado original")
     bloque1.transacciones[1].nota = nota_original
-    es_valida_restaurada = blockchain.is_chain_valid(contract)
-    print(f"-> Estado tras restauracion: {'CADENA RESTAURADA Y VALIDA [OK]' if es_valida_restaurada else 'ERROR AL RESTAURAR'}")
+    es_restaurada = blockchain.is_chain_valid(contract)
+    print(f"    Nota restaurada a {nota_original}. Estado de la cadena: {'VÁLIDA [✓]' if es_restaurada else 'INVÁLIDA [✗]'}")
+    assert es_restaurada is True
+    print_ok("Escenario 3 completado — el ataque fue detectado en 3 niveles independientes.")
+    esperar(0.5)
 
 
     # =========================================================================
-    # ESCENARIO 4: Intento de emisión no autorizada (Smart Contract)
+    # ESCENARIO 4: Intentos de emisión no autorizada
     # =========================================================================
-    print_title("ESCENARIO 4: Intentos de Emision No Autorizada (Fraudes en Origen)")
-    print("[Explicacion] Probaremos tres tipos de ataques antes de que las transacciones puedan ser minadas:")
-    print("A. Un estudiante intenta emitir y firmar una nota usando su propio ID.")
-    print("B. Un atacante externo intenta suplantar al Docente registrado firmando con su propia clave privada.")
-    print("C. Un atacante externo intenta suplantar al Docente usando la clave publica del Docente pero firma falsa.")
-    print("El Smart Contract debe rechazar los 3 intentos levantando un PermissionError.")
-    print("----------------------------------------------------------------------")
+    print_title("ESCENARIO 4 — Intentos de Emisión No Autorizada (Smart Contract)")
     
-    # Generar claves para Estudiante y Atacante
+   #Simulación de 3 ataques:
+
+   #Ataque A: Un estudiante intenta auto-registrar una nota usando su ID.
+   #Ataque B: Un atacante externo suplanta al docente con su propia clave.
+   #Ataque C: Un atacante usa la clave pública del docente pero firma falsa.
+    
+    esperar(0.3)
+
+    print_step(1, "Generar claves para el Estudiante y el Atacante")
     est_key, est_pub = generate_key_pair()
     atk_key, atk_pub = generate_key_pair()
-    
-    # 1. ATAQUE A: Estudiante emite nota
-    print("\n[ATAQUE A] Estudiante ('EST_202601') intenta firmar y auto-registrarse una nota de 5.0...")
+    print(f"    Estudiante PK (X9.62): {est_pub[:40]}...")
+    print(f"    Atacante   PK (X9.62): {atk_pub[:40]}...")
+    #NOTA: Ninguno de estos IDs está registrado como profesor en el Smart Contract.
+    esperar(0.3)
+
+    separador(2)
+    print_warn("ATAQUE A: Estudiante intenta auto-registrar una nota de 5.0")
+    print("""
+    El estudiante EST_202601 construye una transacción con su propio ID
+    como emisor ('id_profesor = EST_202601') y la firma con su clave privada.
+    El Smart Contract verificará si 'EST_202601' está en el registro de profesores.
+    """)
     tx_estudiante = Transaction("EST_202601", "EST_202601", "Criptologia", 5.0, est_key, est_pub)
+    print(f"    Transacción construida: payload = '{tx_estudiante.get_canonical_payload()}'")
+    print(f"    Firma del estudiante:   {tx_estudiante.firma[:40]}...")
+    print(f"\n    Enviando al Smart Contract...")
     try:
         blockchain.add_transaction(tx_estudiante, contract)
-        print("   -> [FALLO DE SEGURIDAD] ¡El sistema acepto la transaccion del estudiante!")
+        print("    [FALLO DE SEGURIDAD] ¡El sistema aceptó la transacción del estudiante!")
     except PermissionError as e:
-        print(f"   -> [EXCEPCION CAPTURADA] {e}")
-        print("      [OK] Rechazo exitoso en Smart Contract: El estudiante no tiene rol registrado de profesor.")
+        print(f"\n    Excepción capturada:\n      {e}")
+        print_ok("Ataque A rechazado — el estudiante no tiene rol de profesor registrado.")
+    esperar(0.3)
 
-    # 2. ATAQUE B: Atacante suplanta con clave propia
-    print("\n[ATAQUE B] Atacante intenta emitir nota como 'PROF_ESPEJO' usando su clave publica propia...")
-    # El atacante firma la transacción con su clave privada (atk_key) y adjunta su clave pública (atk_pub)
+    separador(2)
+    print_warn("ATAQUE B: Atacante suplanta al Docente con su propia clave privada/pública")
+    print("""
+    El atacante usa el ID legítimo del docente ('PROF_ESPEJO') pero adjunta
+    su propia clave pública (atk_pub) y firma con su propia clave privada.
+
+    Regla que falla: La PK_hex provista (atk_pub) ≠ PK_hex registrada (prof_pub).
+    """)
     tx_suplantador = Transaction("PROF_ESPEJO", "EST_202601", "Criptologia", 5.0, atk_key, atk_pub)
+    print(f"    ID del docente usado:   PROF_ESPEJO  (legítimo)")
+    print(f"    PK adjunta (atacante):  {atk_pub[:40]}...")
+    print(f"    PK registrada (docente):{prof_pub[:40]}...")
+    print(f"    ¿Coinciden las PK?      {'SÍ' if atk_pub == prof_pub else 'NO ← diferente ✓'}")
+    print(f"\n    Enviando al Smart Contract...")
     try:
         blockchain.add_transaction(tx_suplantador, contract)
-        print("   -> [FALLO DE SEGURIDAD] ¡El sistema acepto la suplantacion con clave publica ajena!")
+        print("    [FALLO DE SEGURIDAD] ¡El sistema aceptó la suplantación!")
     except PermissionError as e:
-        print(f"   -> [EXCEPCION CAPTURADA] {e}")
-        print("      [OK] Rechazo exitoso en Smart Contract: La clave publica de la transaccion no coincide con la registrada para el docente.")
+        print(f"\n    Excepción capturada:\n      {e}")
+        print_ok("Ataque B rechazado — la clave pública adjunta no coincide con la registrada.")
+    esperar(0.3)
 
-    # 3. ATAQUE C: Atacante suplanta con firma falsa
-    print("\n[ATAQUE C] Atacante intenta emitir nota como 'PROF_ESPEJO' usando la clave publica del Docente pero firma falsa...")
-    # Creamos la transacción simulando que adjunta la clave pública del profesor (prof_pub)
-    # pero firma con su clave privada de atacante (atk_key), por lo que la firma es falsa con respecto a prof_pub.
+    separador(2)
+    print_warn("ATAQUE C: Atacante usa la clave pública del Docente pero firma con su clave privada")
+    print("""
+    El atacante usa el ID del docente Y adjunta la PK
+    legítima del docente (prof_pub), pero la transacción fue FIRMADA con
+    la clave privada del atacante (atk_key).
+    """)
+   #Esto pasa la verificación de identidad (Regla 1) y de clave (Regla 2),
+   #pero falla en la verificación de la firma ECDSA (Regla 3): la firma
+   #producida por atk_key no puede verificarse con prof_pub.
     tx_firma_falsa = Transaction("PROF_ESPEJO", "EST_202601", "Criptologia", 5.0, atk_key, prof_pub)
+    payload_falso = tx_firma_falsa.get_canonical_payload()
+    firma_falsa = tx_firma_falsa.firma
+    verif_con_prof_pub = verify_signature(prof_pub, payload_falso, firma_falsa)
+    print(f"    Resultado: {verif_con_prof_pub} {'← INVÁLIDA ✓' if not verif_con_prof_pub else ''}")
+    print(f"\n    Enviando al Smart Contract...")
     try:
-        blockchain.add_transaction(tx_fake_sig := tx_firma_falsa, contract)
-        print("   -> [FALLO DE SEGURIDAD] ¡El sistema acepto una firma digital falsificada!")
+        blockchain.add_transaction(tx_firma_falsa, contract)
+        print("    [FALLO DE SEGURIDAD] ¡El sistema aceptó la firma falsificada!")
     except PermissionError as e:
-        print(f"   -> [EXCEPCION CAPTURADA] {e}")
-        print("      [OK] Rechazo exitoso en Smart Contract: La firma digital ECDSA no corresponde al emisor real de la transaccion.")
+        print(f"\n    Excepción capturada:\n      {e}")
+        print_ok("Ataque C rechazado — la firma ECDSA no corresponde a la clave privada del docente.")
+    esperar(0.3)
 
-    print_title("RESUMEN DE RESULTADOS DE LA DEMOSTRACION")
-    print(" - Escenario 1 (Bloque Genesis):          COMPLETADO Y VALIDADO [OK]")
-    print(" - Escenario 2 (Emision y PoW):           COMPLETADO Y MINADO   [OK]")
-    print(" - Escenario 3 (Modificacion Historica):  DETECTADO Y RECHAZADO [OK]")
-    print(" - Escenario 4 (Accesos No Autorizados):  DETECTADOS Y RECHAZADOS [OK]")
-    print("======================================================================")
-    print("    ha demostrado ser robusto criptograficamente a nivel de:")
-    print(" 1. Confidencialidad, Integridad y Disponibilidad (CIA Triad)")
-    print(" 2. No repudio y autenticidad (Firmas ECDSA SECP256K1)")
-    print(" 3. Auditoria y Resistencia a Modificaciones (Arbol de Merkle y PoW)")
-    print("======================================================================")
+    # =========================================================================
+    # RESUMEN FINAL
+    # =========================================================================
+    print_title("RESUMEN FINAL — Resultados de la Demostración EduChain")
+    print("""
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  Escenario 1 (Bloque Génesis):             COMPLETADO Y VÁLIDO [✓]  │
+  │  Escenario 2 (Emisión y PoW):              COMPLETADO Y MINADO  [✓]  │
+  │  Escenario 3 (Modificación Histórica):     DETECTADO Y RECHAZADO[✓]  │
+  │  Escenario 4A (Fraude: Estudiante):        DETECTADO Y RECHAZADO[✓]  │
+  │  Escenario 4B (Fraude: Suplantación PK):   DETECTADO Y RECHAZADO[✓]  │
+  │  Escenario 4C (Fraude: Firma Falsa):       DETECTADO Y RECHAZADO[✓]  │
+  └─────────────────────────────────────────────────────────────────────┘
+
+    """)
+    separador(1)
 
 if __name__ == '__main__':
     try:
         main()
     except AssertionError as ae:
-        print(f"[FALLO EN DEMO] {ae}")
+        print(f"[FALLO EN DEMO_VERBOSE] {ae}")
         raise
     except Exception as e:
-        print(f"[ERROR EN DEMO] {e}")
+        print(f"[ERROR EN DEMO_VERBOSE] {e}")
         raise

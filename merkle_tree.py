@@ -103,7 +103,10 @@ if __name__ == '__main__':
         h2 = sha256_hash(get_payload_from_tx(tx2))
         expected_root_2 = sha256_hash(h1 + h2)
         print(f"\n3. Merkle Root con 2 transacciones:\n   -> {root_2}")
-        print(f"   -> Hash esperado (H(H1 + H2)): {expected_root_2}")
+        print("   -> Hashes hoja usados en el recorrido:")
+        print(f"      H1 = sha256(payload(tx1)) = {h1}")
+        print(f"      H2 = sha256(payload(tx2)) = {h2}")
+        print(f"   -> Hash del padre calculado con H1 + H2: {expected_root_2}")
         if root_2 != expected_root_2:
             raise AssertionError("Cálculo incorrecto para 2 hojas")
 
@@ -116,7 +119,11 @@ if __name__ == '__main__':
         # Nivel 2 (Root): H(H12 + H33)
         expected_root_3 = sha256_hash(h12 + h33)
         print(f"\n4. Merkle Root con 3 transacciones:\n   -> {root_3}")
-        print(f"   -> Hash esperado (H(H12 + H33)): {expected_root_3}")
+        print("   -> Nivel 1 del recorrido:")
+        print(f"      H12 = sha256(H1 + H2) = {h12}")
+        print(f"      H33 = sha256(H3 + H3) = {h33}  <- H3 duplicado por ser impar")
+        print("   -> Nivel 2 del recorrido (raíz):")
+        print(f"      root = sha256(H12 + H33) = {expected_root_3}")
         if root_3 != expected_root_3:
             raise AssertionError("Cálculo incorrecto para número impar de hojas")
 
@@ -126,7 +133,11 @@ if __name__ == '__main__':
         h34 = sha256_hash(h3 + h4)
         expected_root_4 = sha256_hash(h12 + h34)
         print(f"\n5. Merkle Root con 4 transacciones:\n   -> {root_4}")
-        print(f"   -> Hash esperado (H(H12 + H34)): {expected_root_4}")
+        print("   -> Nivel 1 del recorrido:")
+        print(f"      H12 = sha256(H1 + H2) = {h12}")
+        print(f"      H34 = sha256(H3 + H4) = {h34}")
+        print("   -> Nivel 2 del recorrido (raíz):")
+        print(f"      root = sha256(H12 + H34) = {expected_root_4}")
         if root_4 != expected_root_4:
             raise AssertionError("Cálculo incorrecto para 4 hojas")
 

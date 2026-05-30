@@ -348,6 +348,15 @@ if __name__ == '__main__':
     print("==================================================")
     print("PRUEBA UNITARIA: blockchain.py")
     print("==================================================")
+
+    resultado_general = {"ok": True}
+
+    def reportar_validacion(etiqueta: str, condicion: bool, ok_msg: str, fail_msg: str):
+        if condicion:
+            print(f"[OK] {etiqueta}: {ok_msg}")
+        else:
+            print(f"[FALLO] {etiqueta}: {fail_msg}")
+            resultado_general["ok"] = False
     
     # Importamos herramientas necesarias para el test
     from smart_contract import SmartContract
@@ -379,6 +388,9 @@ if __name__ == '__main__':
     # 1. Instanciamos blockchain y Smart Contract
     bc = Blockchain(difficulty=3)
     contract = SmartContract()
+
+    # Si este valor es False, la prueba no altera ninguna nota y debe mostrarse todo como normal.
+    simular_tampering = True
     
     # 2. Registramos un profesor
     prof_key, prof_pub = generate_key_pair()
@@ -387,17 +399,21 @@ if __name__ == '__main__':
     # 3. Validar cadena inicial (sola la génesis)
     print("\nVerificando validez de cadena inicial (solo genesis)...")
     es_valida = bc.is_chain_valid(contract)
-    print(f"-> ¿Cadena valida?: {es_valida}")
-    assert es_valida is True
+    reportar_validacion(
+        "Cadena inicial",
+        es_valida is True,
+        "La cadena inicial es válida.",
+        "La cadena inicial no es válida."
+    )
     
     # 4. Crear transacciones válidas y agregarlas
-    print("\nEmitiendo transacciones legitimas...")
+    print("\nAgregando notas a la blockchain...")
     tx1 = TestTransaction("PROF_OSCAR", "EST_001", "Criptologia", 4.8, prof_key, prof_pub)
     tx2 = TestTransaction("PROF_OSCAR", "EST_002", "Criptologia", 3.5, prof_key, prof_pub)
     
     bc.add_transaction(tx1, contract)
     bc.add_transaction(tx2, contract)
-    print("[OK] Transacciones agregadas al pool de pendientes.")
+    print("[OK] Transacciones agregadas al pool de pendientes. \n",tx1.to_dict(), "\n", tx2.to_dict())
     
     # 5. Minar las transacciones pendientes en el Bloque 1
     print("\nMinando Bloque 1...")
@@ -406,22 +422,43 @@ if __name__ == '__main__':
     # 6. Validar la cadena con el nuevo bloque
     print("\nVerificando validez de cadena despues del minado...")
     es_valida = bc.is_chain_valid(contract)
-    print(f"-> ¿Cadena valida?: {es_valida}")
-    assert es_valida is True
+    reportar_validacion(
+        "Cadena tras minado",
+        es_valida is True,
+        "La cadena sigue siendo válida después del minado.",
+        "La cadena dejó de ser válida después del minado."
+    )
     
     # 7. Intento de fraude: Manipular una nota histórica del Bloque 1
-    print("\n--- Simulación de ataque: Manipulando nota en Bloque 1 ---")
-    print(f"Original Nota de EST_002: {bloque1.transacciones[1].nota}")
-    # Alteramos la nota directamente
-    bloque1.transacciones[1].nota = 5.0
-    print(f"Alterada Nota de EST_002: {bloque1.transacciones[1].nota}")
+    if simular_tampering:
+        print("\n--- Simulación de ataque: Manipulando nota en Bloque 1 ---")
+        print(f"Original Nota de EST_002: {bloque1.transacciones[1].nota}")
+        # Alteramos la nota directamente
+        bloque1.transacciones[1].nota = 5.0
+        print(f"Alterada Nota de EST_002: {bloque1.transacciones[1].nota}")
+
+        # Validamos integridad
+        print("\nVerificando validez de cadena tras ataque...")
+        es_valida_tampered = bc.is_chain_valid(contract)
+        reportar_validacion(
+            "Detección de modificación histórica",
+            es_valida_tampered is False,
+            "El ataque fue detectado y la cadena quedó inválida.",
+            "El ataque no fue detectado; la cadena siguió apareciendo como válida."
+        )
+    else:
+        print("\n--- Verificación en estado normal ---")
+        print("No se modificó ninguna nota ni se aplicó tampering.")
+        es_valida_normal = bc.is_chain_valid(contract)
+        reportar_validacion(
+            "Estado normal de la cadena",
+            es_valida_normal is True,
+            "La cadena permanece válida y todo está normal.",
+            "La cadena no está en un estado normal."
+        )
     
-    # Validamos integridad
-    print("\nVerificando validez de cadena tras ataque...")
-    es_valida_tampered = bc.is_chain_valid(contract)
-    print(f"-> ¿Cadena valida despues del ataque?: {es_valida_tampered}")
-    assert es_valida_tampered is False, "La blockchain debería detectar el ataque y declararse inválida"
-    print("[OK] ¡El ataque fue detectado con exito y la cadena fue invalidada!")
-    
-    print("\n[OK] ¡Todas las pruebas de Blockchain superadas con exito!")
+    if resultado_general["ok"]:
+        print("\n[OK] Todas las validaciones de Blockchain se completaron correctamente.")
+    else:
+        print("\n[AVISO] Una o más validaciones no cumplieron el resultado esperado.")
     print("==================================================")

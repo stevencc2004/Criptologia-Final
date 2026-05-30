@@ -156,7 +156,7 @@ if __name__ == '__main__':
         if es_valido_ajena:
             raise AssertionError("La firma debe fallar si se verifica con otra clave pública")
 
-        print("\n[OK] ¡Todas las pruebas criptograficas basicas superadas con exito!")
+        print("\nPruebas Básicas realizadas con Éxito!")
         print("==================================================")
     except AssertionError as ae:
         print(f"[FALLO EN PRUEBAS] {ae}")
