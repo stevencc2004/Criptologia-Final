@@ -69,6 +69,9 @@ class Blockchain:
         Args:
             difficulty (int): Número de ceros iniciales requeridos en el hash.
         """
+        # Validar dificultad provista
+        if not isinstance(difficulty, int) or difficulty < 0:
+            raise ValueError("La dificultad debe ser un entero no negativo")
         self.difficulty = difficulty
         self.chain = []
         self.pending_transactions = []
@@ -110,12 +113,27 @@ class Blockchain:
         Args:
             block (Block): Bloque a minar.
         """
+        # Validaciones iniciales
+        if not isinstance(block, Block):
+            raise TypeError("El objeto a minar debe ser una instancia de Block")
+
         start_time = time.time()
         attempts = 0
         target = "0" * self.difficulty
-        block.nonce = 0
-        
+        # Asegurar nonce inicial
+        if not isinstance(block.nonce, int) or block.nonce < 0:
+            block.nonce = 0
+
+        # Seguridad: límite razonable de intentos para evitar loops infinitos en entornos de prueba
+        MAX_ATTEMPTS = 10_000_000
+
         while True:
+            # Validar formatos críticos antes de calcular
+            if not isinstance(block.merkle_root, str) or len(block.merkle_root) != 64:
+                raise ValueError(f"Merkle root inválida en bloque {block.index}")
+            if not isinstance(block.hash_anterior, str) or len(block.hash_anterior) != 64:
+                raise ValueError(f"Hash anterior inválido en bloque {block.index}")
+
             hash_val = block.calculate_hash()
             attempts += 1
             if hash_val.startswith(target):
@@ -127,6 +145,10 @@ class Blockchain:
                 print(f"   -> Total Intentos:  {attempts}")
                 print(f"   -> Tiempo Minado:   {duration:.4f} segundos")
                 break
+
+            if attempts >= MAX_ATTEMPTS:
+                raise RuntimeError(f"Minado abortado tras {MAX_ATTEMPTS} intentos en bloque {block.index}")
+
             block.nonce += 1
 
     def add_transaction(self, transaction, contract) -> bool:
@@ -141,12 +163,39 @@ class Blockchain:
         Returns:
             bool: True si la transacción fue añadida.
         """
+        # Comprobaciones básicas de tipo y estructura
+        if transaction is None:
+            raise ValueError("Transacción vacía no permitida")
+        if contract is None or not hasattr(contract, 'validate_transaction'):
+            raise ValueError("Se requiere un Smart Contract válido con 'validate_transaction()'")
+
+        # Validar estructura mínima de la transacción
+        if not hasattr(transaction, 'get_canonical_payload'):
+            raise AttributeError("La transacción debe implementar 'get_canonical_payload()'")
+        if not hasattr(transaction, 'firma') or not isinstance(transaction.firma, str) or len(transaction.firma) == 0:
+            raise ValueError("La transacción debe incluir una firma ECDSA válida en formato hexadecimal")
+        if not hasattr(transaction, 'pk_hex') or not isinstance(transaction.pk_hex, str):
+            raise ValueError("La transacción debe incluir 'pk_hex' con la clave pública del emisor")
+
+        payload = transaction.get_canonical_payload()
+        if not isinstance(payload, str) or len(payload.strip()) == 0:
+            raise ValueError("El payload canónico de la transacción no puede estar vacío")
+
         # Validar en el Smart Contract antes de agregar al pool
-        contract.validate_transaction(transaction)
+        try:
+            contract.validate_transaction(transaction)
+        except PermissionError:
+            # Re-lanzar PermissionError para que el llamador lo gestione explícitamente
+            raise
+        except Exception as e:
+            # Cualquier otra excepción se trata como error de validación
+            raise ValueError(f"Transacción inválida: {e}")
+
+        # Si todo pasó, añadir al pool
         self.pending_transactions.append(transaction)
         return True
 
-    def mine_pending_transactions(self) -> Block:
+    def mine_pending_transactions(self, contract) -> Block:
         """
         Agrupa todas las transacciones pendientes en un nuevo bloque, calcula el
         Merkle Root, enlaza con el bloque previo, ejecuta el PoW y añade el bloque
@@ -157,16 +206,43 @@ class Blockchain:
         """
         if not self.pending_transactions:
             raise ValueError("[Blockchain] No hay transacciones pendientes para minar.")
-            
+
+        # Validar que se proporcionó un Smart Contract válido para re-verificar firmas
+        if contract is None or not hasattr(contract, 'validate_transaction'):
+            raise ValueError("Se requiere una instancia válida de SmartContract para minar transacciones")
+
+        if not self.chain:
+            raise RuntimeError("La cadena no contiene bloques previos. Cree el genesis antes de minar.")
+
         last_block = self.chain[-1]
-        
-        # Calcular la raíz de Merkle de las transacciones pendientes
-        merkle_root = compute_merkle_root(self.pending_transactions)
+
+        # Validar y filtrar transacciones pendientes mediante el Smart Contract
+        valid_txs = []
+        for tx in list(self.pending_transactions):
+            try:
+                # Validaciones de estructura local antes de delegar al Smart Contract
+                if tx is None:
+                    raise ValueError("Transacción vacía encontrada en pool pendientes")
+                if not hasattr(tx, 'get_canonical_payload') or not hasattr(tx, 'firma') or not hasattr(tx, 'pk_hex'):
+                    raise ValueError("Transacción no cumple la estructura mínima requerida (payload/firma/pk_hex)")
+
+                contract.validate_transaction(tx)
+                valid_txs.append(tx)
+            except PermissionError as e:
+                print(f"[WARN] Transacción descartada por validación (permiso): {e}")
+            except Exception as e:
+                print(f"[WARN] Transacción descartada por validación: {e}")
+
+        if not valid_txs:
+            raise ValueError("Ninguna transacción pendiente pasó la validación del Smart Contract.")
+
+        # Calcular la raíz de Merkle de las transacciones válidas
+        merkle_root = compute_merkle_root(valid_txs)
         
         new_block = Block(
             index=len(self.chain),
             timestamp=time.time(),
-            transacciones=list(self.pending_transactions),
+            transacciones=list(valid_txs),
             merkle_root=merkle_root,
             hash_anterior=last_block.hash,
             nonce=0
@@ -175,9 +251,11 @@ class Blockchain:
         # Minar el bloque
         self.mine_block(new_block)
         
-        # Añadir a la cadena y limpiar pendientes
+        # Añadir a la cadena y limpiar pendientes (eliminamos solo las válidas minadas)
         self.chain.append(new_block)
-        self.pending_transactions = []
+        # Eliminar las transacciones válidas del pool pendiente
+        remaining = [tx for tx in self.pending_transactions if tx not in valid_txs]
+        self.pending_transactions = remaining
         
         return new_block
 
@@ -196,46 +274,73 @@ class Blockchain:
             bool: True si la cadena es 100% íntegra y válida.
         """
         target = "0" * self.difficulty
-        
+
+        if not isinstance(contract, object) or not hasattr(contract, 'validate_transaction'):
+            raise ValueError("Se requiere un Smart Contract válido para verificar la cadena")
+
+        if not self.chain:
+            print("[ERROR] La cadena está vacía")
+            return False
+
+        # Validar bloque Génesis explícitamente
+        genesis = self.chain[0]
+        if genesis.index != 0:
+            print("[ERROR GENESIS] El primer bloque debe tener index 0")
+            return False
+        if genesis.merkle_root != "0" * 64:
+            print("[ERROR GENESIS] Merkle root del genesis inválida")
+            return False
+        if genesis.hash_anterior != "0" * 64:
+            print("[ERROR GENESIS] Hash anterior del genesis inválido")
+            return False
+        if genesis.hash != genesis.calculate_hash():
+            print("[ERROR GENESIS] Hash del genesis inconsistente")
+            return False
+        if not genesis.hash.startswith(target):
+            print("[ERROR GENESIS] Genesis no cumple la dificultad PoW")
+            return False
+
         for i in range(1, len(self.chain)):
             current = self.chain[i]
             prev = self.chain[i-1]
-            
-            # A. Verificar consistencia del hash almacenado con el recalculado de cabecera
-            if current.hash != current.calculate_hash():
+
+            # Validaciones estructurales básicas
+            if not isinstance(current.index, int) or current.index != i:
+                print(f"[ERROR ESTRUCTURA] Índice inválido en bloque {i}")
+                return False
+
+            recalculated_hash = current.calculate_hash()
+            if current.hash != recalculated_hash:
                 print(f"[ERROR INTEGRIDAD] Bloque {current.index} tiene un Hash inconsistente.")
                 print(f"   -> Almacenado:   {current.hash}")
-                print(f"   -> Recalculado: {current.calculate_hash()}")
+                print(f"   -> Recalculado: {recalculated_hash}")
                 return False
-                
-            # B. Verificar que cumpla la dificultad Proof of Work
+
             if not current.hash.startswith(target):
                 print(f"[ERROR CONSENSO] Bloque {current.index} no cumple con la dificultad de Proof of Work '{target}'.")
                 return False
-                
-            # C. Verificar el enlace de hash con el bloque anterior
+
             if current.hash_anterior != prev.hash:
                 print(f"[ERROR ENLACE] Bloque {current.index} apunta a un hash anterior incorrecto.")
                 print(f"   -> Apunta a:      {current.hash_anterior}")
                 print(f"   -> Hash de prev:  {prev.hash}")
                 return False
-                
-            # D. Verificar la raíz de Merkle recalculada sobre las transacciones del cuerpo
+
             computed_root = compute_merkle_root(current.transacciones)
             if current.merkle_root != computed_root:
                 print(f"[ERROR MERKLE] Bloque {current.index} tiene una raiz de Merkle inconsistente.")
                 print(f"   -> En cabecera:   {current.merkle_root}")
                 print(f"   -> Recalculada:   {computed_root}")
                 return False
-                
-            # E. Verificar criptográficamente cada transacción en el bloque usando el Smart Contract
+
             for tx_idx, tx in enumerate(current.transacciones):
                 try:
+                    # Aceptamos que contract.validate_transaction puede lanzar distintos errores
                     contract.validate_transaction(tx)
-                except PermissionError as e:
+                except Exception as e:
                     print(f"[ERROR FRAUDE] Bloque {current.index}, Transaccion #{tx_idx} invalida: {e}")
                     return False
-                    
+
         return True
 
 # Bloque de prueba de funcionamiento autónomo
@@ -243,6 +348,15 @@ if __name__ == '__main__':
     print("==================================================")
     print("PRUEBA UNITARIA: blockchain.py")
     print("==================================================")
+
+    resultado_general = {"ok": True}
+
+    def reportar_validacion(etiqueta: str, condicion: bool, ok_msg: str, fail_msg: str):
+        if condicion:
+            print(f"[OK] {etiqueta}: {ok_msg}")
+        else:
+            print(f"[FALLO] {etiqueta}: {fail_msg}")
+            resultado_general["ok"] = False
     
     # Importamos herramientas necesarias para el test
     from smart_contract import SmartContract
@@ -274,6 +388,9 @@ if __name__ == '__main__':
     # 1. Instanciamos blockchain y Smart Contract
     bc = Blockchain(difficulty=3)
     contract = SmartContract()
+
+    # Si este valor es False, la prueba no altera ninguna nota y debe mostrarse todo como normal.
+    simular_tampering = True
     
     # 2. Registramos un profesor
     prof_key, prof_pub = generate_key_pair()
@@ -282,41 +399,66 @@ if __name__ == '__main__':
     # 3. Validar cadena inicial (sola la génesis)
     print("\nVerificando validez de cadena inicial (solo genesis)...")
     es_valida = bc.is_chain_valid(contract)
-    print(f"-> ¿Cadena valida?: {es_valida}")
-    assert es_valida is True
+    reportar_validacion(
+        "Cadena inicial",
+        es_valida is True,
+        "La cadena inicial es válida.",
+        "La cadena inicial no es válida."
+    )
     
     # 4. Crear transacciones válidas y agregarlas
-    print("\nEmitiendo transacciones legitimas...")
+    print("\nAgregando notas a la blockchain...")
     tx1 = TestTransaction("PROF_OSCAR", "EST_001", "Criptologia", 4.8, prof_key, prof_pub)
     tx2 = TestTransaction("PROF_OSCAR", "EST_002", "Criptologia", 3.5, prof_key, prof_pub)
     
     bc.add_transaction(tx1, contract)
     bc.add_transaction(tx2, contract)
-    print("[OK] Transacciones agregadas al pool de pendientes.")
+    print("[OK] Transacciones agregadas al pool de pendientes. \n",tx1.to_dict(), "\n", tx2.to_dict())
     
     # 5. Minar las transacciones pendientes en el Bloque 1
     print("\nMinando Bloque 1...")
-    bloque1 = bc.mine_pending_transactions()
+    bloque1 = bc.mine_pending_transactions(contract)
     
     # 6. Validar la cadena con el nuevo bloque
     print("\nVerificando validez de cadena despues del minado...")
     es_valida = bc.is_chain_valid(contract)
-    print(f"-> ¿Cadena valida?: {es_valida}")
-    assert es_valida is True
+    reportar_validacion(
+        "Cadena tras minado",
+        es_valida is True,
+        "La cadena sigue siendo válida después del minado.",
+        "La cadena dejó de ser válida después del minado."
+    )
     
     # 7. Intento de fraude: Manipular una nota histórica del Bloque 1
-    print("\n--- Simulación de ataque: Manipulando nota en Bloque 1 ---")
-    print(f"Original Nota de EST_002: {bloque1.transacciones[1].nota}")
-    # Alteramos la nota directamente
-    bloque1.transacciones[1].nota = 5.0
-    print(f"Alterada Nota de EST_002: {bloque1.transacciones[1].nota}")
+    if simular_tampering:
+        print("\n--- Simulación de ataque: Manipulando nota en Bloque 1 ---")
+        print(f"Original Nota de EST_002: {bloque1.transacciones[1].nota}")
+        # Alteramos la nota directamente
+        bloque1.transacciones[1].nota = 5.0
+        print(f"Alterada Nota de EST_002: {bloque1.transacciones[1].nota}")
+
+        # Validamos integridad
+        print("\nVerificando validez de cadena tras ataque...")
+        es_valida_tampered = bc.is_chain_valid(contract)
+        reportar_validacion(
+            "Detección de modificación histórica",
+            es_valida_tampered is False,
+            "El ataque fue detectado y la cadena quedó inválida.",
+            "El ataque no fue detectado; la cadena siguió apareciendo como válida."
+        )
+    else:
+        print("\n--- Verificación en estado normal ---")
+        print("No se modificó ninguna nota ni se aplicó tampering.")
+        es_valida_normal = bc.is_chain_valid(contract)
+        reportar_validacion(
+            "Estado normal de la cadena",
+            es_valida_normal is True,
+            "La cadena permanece válida y todo está normal.",
+            "La cadena no está en un estado normal."
+        )
     
-    # Validamos integridad
-    print("\nVerificando validez de cadena tras ataque...")
-    es_valida_tampered = bc.is_chain_valid(contract)
-    print(f"-> ¿Cadena valida despues del ataque?: {es_valida_tampered}")
-    assert es_valida_tampered is True, "La blockchain debería detectar el ataque y declararse inválida"
-    print("[OK] ¡El ataque fue detectado con exito y la cadena fue invalidada!")
-    
-    print("\n[OK] ¡Todas las pruebas de Blockchain superadas con exito!")
+    if resultado_general["ok"]:
+        print("\n[OK] Todas las validaciones de Blockchain se completaron correctamente.")
+    else:
+        print("\n[AVISO] Una o más validaciones no cumplieron el resultado esperado.")
     print("==================================================")

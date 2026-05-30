@@ -1,6 +1,6 @@
 """
 Módulo: crypto_utils.py
-Asignatura: Criptología - Proyecto Final (EduChain)
+Asignatura: Criptología - Proyecto Final 
 Universidad Distrital Francisco José de Caldas
 
 Este módulo provee las primitivas criptográficas esenciales del sistema, incluyendo:
@@ -103,51 +103,64 @@ def verify_signature(pk_hex: str, data: str, signature_hex: str) -> bool:
 
 # Bloque de prueba de funcionamiento autónomo
 if __name__ == '__main__':
-    print("==================================================")
-    print("PRUEBA UNITARIA: crypto_utils.py")
-    print("==================================================")
-    
-    # 1. Prueba de Hash SHA-256
-    mensaje = "Sistemas Descentralizados y Criptología 2026"
-    hash_msg = sha256_hash(mensaje)
-    print(f"1. Hash SHA-256 de '{mensaje}':\n   -> {hash_msg}")
-    assert len(hash_msg) == 64, "El hash debe tener 64 caracteres"
-    
-    # 2. Generación de Claves
-    print("\n2. Generando par de claves ECDSA (SECP256K1)...")
-    priv_key, pub_key_hex = generate_key_pair()
-    print(f"   -> Clave Privada (Objeto en memoria): {priv_key}")
-    print(f"   -> Clave Pública Hex (X9.62 uncompressed, len={len(pub_key_hex)}):")
-    print(f"      {pub_key_hex}")
-    
-    assert pub_key_hex.startswith("04"), "La clave pública X9.62 no comprimida debe empezar con '04'"
-    assert len(pub_key_hex) == 130, "La clave pública X9.62 no comprimida debe medir exactamente 130 caracteres"
-    
-    # 3. Firma Digital
-    payload = "PROF_001|EST_999|Criptologia|4.8"
-    print(f"\n3. Firmando payload académico canónico: '{payload}'")
-    firma = sign_data(priv_key, payload)
-    print(f"   -> Firma generada (hex, len={len(firma)}):\n      {firma}")
-    
-    # 4. Verificación Exitosa
-    print("\n4. Verificando firma válida con la clave pública...")
-    es_valido = verify_signature(pub_key_hex, payload, firma)
-    print(f"   -> ¿Firma válida?: {es_valido}")
-    assert es_valido is True, "La firma generada debe ser válida"
-    
-    # 5. Verificación Fallida (Datos alterados)
-    payload_alterado = "PROF_001|EST_999|Criptologia|5.0"
-    print(f"\n5. Verificando con datos alterados: '{payload_alterado}'")
-    es_valido_alterado = verify_signature(pub_key_hex, payload_alterado, firma)
-    print(f"   -> ¿Firma válida tras alteración?: {es_valido_alterado}")
-    assert es_valido_alterado is False, "La firma debe fallar si los datos fueron alterados (Efecto Avalancha/Integridad)"
-    
-    # 6. Verificación Fallida (Clave ajena)
-    _, pub_key_ajena = generate_key_pair()
-    print("\n6. Verificando firma con clave pública de un tercero...")
-    es_valido_ajena = verify_signature(pub_key_ajena, payload, firma)
-    print(f"   -> ¿Firma válida con clave ajena?: {es_valido_ajena}")
-    assert es_valido_ajena is False, "La firma debe fallar si se verifica con otra clave pública"
-    
-    print("\n[OK] ¡Todas las pruebas criptograficas basicas superadas con exito!")
-    print("==================================================")
+    try:
+        print("==================================================")
+        print("PRUEBA UNITARIA: crypto_utils.py")
+        print("==================================================")
+
+        # 1. Prueba de Hash SHA-256
+        mensaje = "Sistemas Descentralizados y Criptología 2026"
+        hash_msg = sha256_hash(mensaje)
+        print(f"1. Hash SHA-256 de '{mensaje}':\n   -> {hash_msg}")
+        if len(hash_msg) != 64:
+            raise AssertionError("El hash debe tener 64 caracteres")
+
+        # 2. Generación de Claves
+        print("\n2. Generando par de claves ECDSA (SECP256K1)...")
+        priv_key, pub_key_hex = generate_key_pair()
+        print(f"   -> Clave Privada (Objeto en memoria): {priv_key}")
+        print(f"   -> Clave Pública Hex (X9.62 uncompressed, len={len(pub_key_hex)}):")
+        print(f"      {pub_key_hex}")
+
+        if not pub_key_hex.startswith("04"):
+            raise AssertionError("La clave pública X9.62 no comprimida debe empezar con '04'")
+        if len(pub_key_hex) != 130:
+            raise AssertionError("La clave pública X9.62 no comprimida debe medir exactamente 130 caracteres")
+
+        # 3. Firma Digital
+        payload = "PROF_001|EST_999|Criptologia|4.8"
+        print(f"\n3. Firmando payload académico canónico: '{payload}'")
+        firma = sign_data(priv_key, payload)
+        print(f"   -> Firma generada (hex, len={len(firma)}):\n      {firma}")
+
+        # 4. Verificación Exitosa
+        print("\n4. Verificando firma válida con la clave pública...")
+        es_valido = verify_signature(pub_key_hex, payload, firma)
+        print(f"   -> ¿Firma válida?: {es_valido}")
+        if not es_valido:
+            raise AssertionError("La firma generada debe ser válida")
+
+        # 5. Verificación Fallida (Datos alterados)
+        payload_alterado = "PROF_001|EST_999|Criptologia|5.0"
+        print(f"\n5. Verificando con datos alterados: '{payload_alterado}'")
+        es_valido_alterado = verify_signature(pub_key_hex, payload_alterado, firma)
+        print(f"   -> ¿Firma válida tras alteración?: {es_valido_alterado}")
+        if es_valido_alterado:
+            raise AssertionError("La firma debe fallar si los datos fueron alterados (Efecto Avalancha/Integridad)")
+
+        # 6. Verificación Fallida (Clave ajena)
+        _, pub_key_ajena = generate_key_pair()
+        print("\n6. Verificando firma con clave pública de un tercero...")
+        es_valido_ajena = verify_signature(pub_key_ajena, payload, firma)
+        print(f"   -> ¿Firma válida con clave ajena?: {es_valido_ajena}")
+        if es_valido_ajena:
+            raise AssertionError("La firma debe fallar si se verifica con otra clave pública")
+
+        print("\nPruebas Básicas realizadas con Éxito!")
+        print("==================================================")
+    except AssertionError as ae:
+        print(f"[FALLO EN PRUEBAS] {ae}")
+        raise
+    except Exception as e:
+        print(f"[ERROR] Ejecución de pruebas fallida: {e}")
+        raise
