@@ -120,6 +120,20 @@ def mostrar_transaccion(tx: Transaction, numero: int):
     print(f"  └──────────────────────────────────────────────────────")
 
 
+def calcular_niveles_merkle(transacciones: list) -> list[list[str]]:
+    """Devuelve los niveles del arbol de Merkle como listas de hashes hex."""
+    niveles = [[sha256_hash(tx.get_canonical_payload()) for tx in transacciones]]
+    while len(niveles[-1]) > 1:
+        nivel_actual = niveles[-1]
+        siguiente_nivel = []
+        for indice in range(0, len(nivel_actual), 2):
+            izquierda = nivel_actual[indice]
+            derecha = nivel_actual[indice + 1] if indice + 1 < len(nivel_actual) else izquierda
+            siguiente_nivel.append(sha256_hash(izquierda + derecha))
+        niveles.append(siguiente_nivel)
+    return niveles
+
+
 # ============================================================
 # MAIN: Demostración por escenarios
 # ============================================================
@@ -201,20 +215,30 @@ def main():
     print(f"\n    Registro actual del Smart Contract: {{'PROF_ESPEJO': '{prof_pub}'}}")
     esperar(0.3)
 
-    print_step(3, "El Docente emite y firma 3 calificaciones")
+    print_step(3, "El Docente emite y firma 8 calificaciones")
     print("    Formato: 'ID_Profesor|ID_Estudiante|Asignatura|Nota'")
     #Luego se firma con ECDSA(SHA-256) usando la clave privada del docente.
-    tx1 = Transaction("PROF_ESPEJO", "EST_202601", "Criptologia", 4.5, prof_key, prof_pub)
-    tx2 = Transaction("PROF_ESPEJO", "EST_202602", "Criptologia", 3.8, prof_key, prof_pub)
-    tx3 = Transaction("PROF_ESPEJO", "EST_202603", "Criptologia", 4.9, prof_key, prof_pub)
-    mostrar_transaccion(tx1, 1)
-    mostrar_transaccion(tx2, 2)
-    mostrar_transaccion(tx3, 3)
+    datos_transacciones = [
+        ("EST_202601", 4.5),
+        ("EST_202602", 3.8),
+        ("EST_202603", 4.9),
+        ("EST_202604", 4.1),
+        ("EST_202605", 3.9),
+        ("EST_202606", 4.7),
+        ("EST_202607", 4.2),
+        ("EST_202608", 5.0),
+    ]
+    transacciones = [
+        Transaction("PROF_ESPEJO", id_estudiante, "Criptologia", nota, prof_key, prof_pub)
+        for id_estudiante, nota in datos_transacciones
+    ]
+    for numero, transaccion in enumerate(transacciones, 1):
+        mostrar_transaccion(transaccion, numero)
     esperar(0.3)
 
     print_step(4, "Verificación individual de cada firma (pre-validación interna)")
     #que verify_signature() comprueba correctamente cada firma:)
-    for idx, tx in enumerate([tx1, tx2, tx3], 1):
+    for idx, tx in enumerate(transacciones, 1):
         payload = tx.get_canonical_payload()
         es_firma_valida = verify_signature(tx.pk_hex, payload, tx.firma)
         print(f"    Transacción #{idx} → payload='{payload}'")
@@ -227,26 +251,21 @@ def main():
     #Regla 1: ¿Está registrado el ID del profesor?
     #Regla 2: ¿Coincide la PK_hex con la registrada para ese ID?
     #Regla 3: ¿Es válida la firma ECDSA sobre el payload canónico?
-    blockchain.add_transaction(tx1, contract)
-    blockchain.add_transaction(tx2, contract)
-    blockchain.add_transaction(tx3, contract)
+    for transaccion in transacciones:
+        blockchain.add_transaction(transaccion, contract)
     print(f"\n    Pool de transacciones pendientes: {len(blockchain.pending_transactions)} transaccion(es).")
     esperar(0.3)
 
     print_step(6, "Calcular la Raíz del Árbol de Merkle (antes del minado)")
-    #El árbol de Merkle resume las 3 transacciones en un único hash de 256 bits.
-    h1 = sha256_hash(tx1.get_canonical_payload())
-    h2 = sha256_hash(tx2.get_canonical_payload())
-    h3 = sha256_hash(tx3.get_canonical_payload())
-    h12 = sha256_hash(h1 + h2)
-    h33 = sha256_hash(h3 + h3)
-    raiz_merkle = sha256_hash(h12 + h33)
-    print(f"    Hoja 1 (TX1): {h1[:40]}...")
-    print(f"    Hoja 2 (TX2): {h2[:40]}...")
-    print(f"    Hoja 3 (TX3): {h3[:40]}...")
-    print(f"    Nivel 1:")
-    print(f"      Nodo H(H1+H2): {h12[:40]}...")
-    print(f"      Nodo H(H3+H3): {h33[:40]}...  ← H3 duplicado (impar)")
+    # El árbol de Merkle resume las 8 transacciones en un único hash de 256 bits.
+    niveles_merkle = calcular_niveles_merkle(transacciones)
+    for indice, hash_hoja in enumerate(niveles_merkle[0], 1):
+        print(f"    Hoja {indice} (TX{indice}): {hash_hoja[:40]}...")
+    for nivel_indice, nivel in enumerate(niveles_merkle[1:-1], 1):
+        print(f"    Nivel {nivel_indice}:")
+        for nodo_indice, hash_nodo in enumerate(nivel, 1):
+            print(f"      Nodo {nodo_indice}: {hash_nodo[:40]}...")
+    raiz_merkle = niveles_merkle[-1][0]
     print(f"    Raíz Merkle:   {raiz_merkle[:40]}...")
     merkle_calculado = compute_merkle_root(blockchain.pending_transactions)
     print(f"\n    Verificación: compute_merkle_root() = {merkle_calculado[:40]}...")
@@ -272,7 +291,7 @@ def main():
     es_valida = blockchain.is_chain_valid(contract)
     print(f"\n    Resultado: {'CADENA VÁLIDA [✓]' if es_valida else 'CADENA INVÁLIDA [✗]'}")
     assert es_valida is True
-    print_ok("Escenario 2 completado — 3 notas emitidas, firmadas, validadas y minadas.")
+    print_ok("Escenario 2 completado — 8 notas emitidas, firmadas, validadas y minadas.")
     esperar(0.5)
 
 
